@@ -51,7 +51,6 @@ logs/
 .DS_Store
 Thumbs.db
 .claude/settings.local.json
-config/default.yaml
 
 # Large source/model files
 source_audio.m4a
