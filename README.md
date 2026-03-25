@@ -160,11 +160,11 @@ speaker_extract:
 vad:
   threshold: 0.5
   min_speech_duration_ms: 250
-  min_silence_duration_ms: 300
+  min_silence_duration_ms: 150
   padding_ms: 250
 
 denoise:
-  model_source: "speechbrain/sepformer-dns4-16k-enhancement"
+  model_name: "MossFormer2_SE_48K"   # via clearvoice package, outputs 48kHz
   chunk_seconds: 30.0
 
 asr:

@@ -21,9 +21,7 @@ class SpeakerExtractConfig(BaseModel):
 
 
 class DenoiseConfig(BaseModel):
-    model_name: str = "MossFormer2_SE_48K"
-    # Legacy field kept for backward compatibility
-    model_source: str = "speechbrain/sepformer-dns4-16k-enhancement"
+    model_name: str = "MossFormer2_SE_48K"  # via clearvoice package
     chunk_seconds: float = 30.0
 
 
