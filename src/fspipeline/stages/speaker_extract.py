@@ -10,7 +10,7 @@ from pyannote.audio import Inference
 
 from ..config import PipelineConfig
 from ..models import PipelineContext
-from ..utils.audio import save_audio
+from ..utils.audio import load_audio, save_audio
 from .base import PipelineStage
 
 
@@ -56,9 +56,7 @@ class SpeakerExtractStage(PipelineStage):
             speaker_segments.setdefault(speaker, []).append((turn.start, turn.end))
 
         # Load full audio for extraction
-        waveform, sr = torchaudio.load(str(ctx.full_audio_path))
-        if waveform.shape[0] > 1:
-            waveform = waveform.mean(dim=0, keepdim=True)
+        waveform, sr = load_audio(ctx.full_audio_path, sample_rate=16000)
 
         # Find best matching speaker by centroid cosine similarity
         best_speaker = None

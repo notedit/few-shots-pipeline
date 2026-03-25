@@ -11,8 +11,11 @@ from .models import PipelineContext
 from .stages import (
     AudioExtractStage,
     SpeakerExtractStage,
+    SpeakerFilterStage,
+    SpeakerTrimStage,
     DenoiseStage,
     VadSegmentStage,
+    VadTrimStage,
     DualAsrStage,
     LlmCorrectStage,
 )
@@ -21,12 +24,14 @@ from .stages.base import PipelineStage
 logger = logging.getLogger(__name__)
 
 ALL_STAGES: list[type[PipelineStage]] = [
-    AudioExtractStage,
-    SpeakerExtractStage,
-    DenoiseStage,
-    VadSegmentStage,
-    DualAsrStage,
-    LlmCorrectStage,
+    AudioExtractStage,     # 0: m4a/mp4 → full_audio.wav
+    DenoiseStage,          # 1: full-audio speech enhancement (MossFormer2)
+    VadSegmentStage,       # 2: VAD on clean audio → segments/
+    SpeakerFilterStage,    # 3: coarse per-segment speaker similarity filter
+    VadTrimStage,          # 4: post-segment VAD trim → segments_trimmed/
+    SpeakerTrimStage,      # 5: fine sliding-window speaker trim
+    DualAsrStage,          # 6: ASR transcription
+    LlmCorrectStage,       # 7: LLM correction
 ]
 
 STAGE_MAP: dict[str, type[PipelineStage]] = {

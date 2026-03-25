@@ -1,4 +1,14 @@
-"""Stage 4: Dual ASR (faster-whisper + Qwen3-ASR) with similarity filtering."""
+"""Stage 4: ASR transcription.
+
+Supports two modes controlled by AsrConfig.whisper_only:
+  - whisper_only=True  (default for this run): faster-whisper only; transcript_final
+    is set directly from Whisper output without dual-model similarity filtering.
+  - whisper_only=False: dual-model (faster-whisper + Qwen3-ASR) with cross-model
+    similarity filtering as originally designed.
+
+Only *valid* segments (is_valid=True) are transcribed; segments already marked
+invalid by SpeakerFilterStage are skipped.
+"""
 
 from __future__ import annotations
 
@@ -21,17 +31,17 @@ class DualAsrStage(PipelineStage):
 
     def _init_whisper(self):
         from faster_whisper import WhisperModel
+        import torch
 
         device = self.cfg.whisper_device
         if device == "auto":
-            import torch
             device = "cuda" if torch.cuda.is_available() else "cpu"
 
         compute_type = self.cfg.whisper_compute_type
         if device == "cpu":
             compute_type = "int8"
 
-        self.logger.info(f"Loading Whisper {self.cfg.whisper_model} on {device}")
+        self.logger.info(f"Loading Whisper {self.cfg.whisper_model} on {device} ({compute_type})")
         return WhisperModel(
             self.cfg.whisper_model,
             device=device,
@@ -68,13 +78,10 @@ class DualAsrStage(PipelineStage):
 
     def _transcribe_qwen(self, model, processor, device, audio_path: str) -> str:
         import torch
-        import torchaudio
+        from ..utils.audio import load_audio
+        from pathlib import Path
 
-        waveform, sr = torchaudio.load(audio_path)
-        if waveform.shape[0] > 1:
-            waveform = waveform.mean(dim=0, keepdim=True)
-        if sr != 16000:
-            waveform = torchaudio.transforms.Resample(sr, 16000)(waveform)
+        waveform, sr = load_audio(Path(audio_path), sample_rate=16000)
 
         inputs = processor(
             waveform.squeeze(0).numpy(),
@@ -88,39 +95,51 @@ class DualAsrStage(PipelineStage):
         return transcription.strip()
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
-        whisper_model = self._init_whisper()
-        qwen_model, qwen_processor, qwen_device = self._init_qwen()
+        whisper_only = getattr(self.cfg, "whisper_only", True)
 
-        valid_count = 0
-        for seg in ctx.segments:
+        whisper_model = self._init_whisper()
+        qwen_model = qwen_processor = qwen_device = None
+        if not whisper_only:
+            qwen_model, qwen_processor, qwen_device = self._init_qwen()
+
+        valid_segs = [s for s in ctx.segments if s.is_valid]
+        self.logger.info(
+            f"Transcribing {len(valid_segs)} valid segments "
+            f"({'whisper-only' if whisper_only else 'dual-model'} mode)"
+        )
+
+        for i, seg in enumerate(valid_segs):
             audio_path = str(seg.audio_path)
 
-            # Whisper transcription
             seg.transcript_whisper = self._transcribe_whisper(whisper_model, audio_path)
 
-            # Qwen3-ASR transcription
-            seg.transcript_qwen = self._transcribe_qwen(
-                qwen_model, qwen_processor, qwen_device, audio_path
-            )
-
-            # Compute similarity
-            seg.similarity_score = text_similarity(
-                seg.transcript_whisper, seg.transcript_qwen
-            )
-
-            # Filter by threshold
-            if seg.similarity_score >= self.cfg.similarity_threshold:
+            if whisper_only:
+                # Single-model mode: accept all Whisper results directly
                 seg.transcript_final = seg.transcript_whisper
-                valid_count += 1
+                seg.similarity_score = 1.0
+                if (i + 1) % 10 == 0 or i == 0:
+                    self.logger.info(
+                        f"[{i+1}/{len(valid_segs)}] {seg.id}: {seg.transcript_whisper[:60]!r}"
+                    )
             else:
-                seg.is_valid = False
-                self.logger.debug(
-                    f"{seg.id}: similarity={seg.similarity_score:.3f} < "
-                    f"{self.cfg.similarity_threshold} (rejected)"
+                # Dual-model mode: cross-check with Qwen
+                seg.transcript_qwen = self._transcribe_qwen(
+                    qwen_model, qwen_processor, qwen_device, audio_path
                 )
+                seg.similarity_score = text_similarity(
+                    seg.transcript_whisper, seg.transcript_qwen
+                )
+                if seg.similarity_score >= self.cfg.similarity_threshold:
+                    seg.transcript_final = seg.transcript_whisper
+                else:
+                    seg.is_valid = False
+                    self.logger.debug(
+                        f"{seg.id}: dual-ASR similarity={seg.similarity_score:.3f} "
+                        f"< {self.cfg.similarity_threshold} (rejected)"
+                    )
 
+        final_valid = sum(1 for s in ctx.segments if s.is_valid)
         self.logger.info(
-            f"ASR complete: {valid_count}/{len(ctx.segments)} segments passed "
-            f"similarity threshold"
+            f"ASR complete: {final_valid}/{len(ctx.segments)} segments valid"
         )
         return ctx

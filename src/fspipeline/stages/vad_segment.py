@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import torch
-import torchaudio
 import numpy as np
 
 from ..config import PipelineConfig
 from ..models import AudioSegment, PipelineContext
-from ..utils.audio import save_audio
+from ..utils.audio import load_audio, save_audio
 from .base import PipelineStage
 
 
@@ -29,26 +27,14 @@ class VadSegmentStage(PipelineStage):
         segments_dir = ctx.output_dir / "segments"
         segments_dir.mkdir(parents=True, exist_ok=True)
 
-        # Load Silero VAD
+        # Load Silero VAD (pip package v6 — no network call)
         self.logger.info("Loading Silero VAD model...")
-        vad_model, vad_utils = torch.hub.load(
-            repo_or_dir="snakers4/silero-vad",
-            model="silero_vad",
-            trust_repo=True,
-        )
-        get_speech_timestamps = vad_utils[0]
+        from silero_vad import load_silero_vad, get_speech_timestamps
+        vad_model = load_silero_vad()
 
-        # Load audio
-        waveform, sr = torchaudio.load(str(input_path))
-        if waveform.shape[0] > 1:
-            waveform = waveform.mean(dim=0, keepdim=True)
+        # Load audio (already WAV from prior stages, 16kHz)
+        waveform, sr = load_audio(input_path, sample_rate=16000)
         waveform_1d = waveform.squeeze(0)
-
-        # Silero VAD expects 16kHz
-        if sr != 16000:
-            resampler = torchaudio.transforms.Resample(sr, 16000)
-            waveform_1d = resampler(waveform_1d)
-            sr = 16000
 
         # Get speech timestamps
         speech_timestamps = get_speech_timestamps(
