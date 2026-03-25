@@ -1,0 +1,36 @@
+audio_extract:
+  sample_rate: 16000
+  channels: 1
+
+speaker_extract:
+  diarization_model: "pyannote/speaker-diarization-3.1"
+  embedding_model: "pyannote/wespeaker-voxceleb-resnet34-LM"
+  similarity_threshold: 0.45
+  hf_token: ""  # Set your HuggingFace token here
+
+denoise:
+  model_source: "speechbrain/sepformer-dns4-16k-enhancement"
+  chunk_seconds: 30.0
+
+vad:
+  min_speech_duration_ms: 250
+  min_silence_duration_ms: 300
+  padding_ms: 250
+  threshold: 0.5
+
+asr:
+  whisper_model: "large-v3"
+  whisper_device: "auto"
+  whisper_compute_type: "float16"
+  qwen_model: "Qwen/Qwen3-ASR-1.7B"
+  language: "auto"
+  similarity_threshold: 0.90
+
+llm:
+  base_url: "https://openrouter.ai/api/v1"
+  model: "anthropic/claude-sonnet-4"
+  api_key: ""  # Set your OpenRouter API key here
+  batch_size: 20
+  temperature: 0.3
+
+output_dir: "output"
